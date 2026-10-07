@@ -584,6 +584,12 @@ document.addEventListener('DOMContentLoaded',function(){
 table.sched{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;}
 table.sched thead th{background:var(--gold);color:var(--maroon-deep);font-weight:800;font-size:11.5px;letter-spacing:.3px;text-transform:uppercase;padding:9px 10px;text-align:left;border-bottom:1px solid #e0a61c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 table.sched th.sessCol{width:13%;}
+.schedSyncPill{display:inline-block;margin-left:10px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:#eef1f5;color:#556;}
+.schedSyncPill.saving{background:#fff4d6;color:#8a6200;}
+.schedSyncPill.cloud{background:#dff5e6;color:#1d6b3a;}
+.schedSyncPill.error{background:#fde1e1;color:#a11;}
+.schedSyncRetry{margin-left:8px;border:0;background:transparent;color:inherit;text-decoration:underline;cursor:pointer;font:inherit;}
+@media print{.schedSyncPill{display:none!important;}}
 table.sched th.dayCol{width:9%;}
 table.sched th.dateCol{width:10%;}
 table.sched th.timeCol{width:11%;}
@@ -856,6 +862,7 @@ table.sched td.rmCell{text-align:center;}
       <div class="yearPicker">
         <label>Season</label>
         <select id="seasonSelect-sched" class="headerSelect" style="width:auto;padding:7px 10px;"></select>
+        <span class="schedSyncPill local" id="schedSyncStatus">Saved on this device</span>
       </div>
       <div class="phaseTabs" id="phaseTabs-sched">
         <button class="phaseTab active" data-phase="preseason">Preseason Phase</button>
@@ -2787,15 +2794,59 @@ document.addEventListener('DOMContentLoaded',function(){
   }
 
   /* ---- save / load (localStorage), matching the pattern used elsewhere in this file ---- */
-  function collectState_SCHED(){ return { v:1, allSeasons: allSeasons_SCHED, currentSeason: currentSeason_SCHED }; }
+  function collectState_SCHED(){ return { v:1, allSeasons: allSeasons_SCHED, currentSeason: currentSeason_SCHED, lastModified: Date.now() }; }
   function reallySave_SCHED(){ try{ localStorage.setItem(LS_KEY_SCHED, JSON.stringify(collectState_SCHED())); }catch(e){} }
-  function saveState_SCHED(){ if(!saveEnabled_SCHED) return; clearTimeout(saveTimer_SCHED); saveTimer_SCHED=setTimeout(reallySave_SCHED, 400); }
+  function saveState_SCHED(){ if(!saveEnabled_SCHED) return; clearTimeout(saveTimer_SCHED); saveTimer_SCHED=setTimeout(reallySave_SCHED, 400); scheduleCloudPush_SCHED(); }
+
+  /* ---- cloud sync: same JSONBin bin as the Session Library, under a reserved key ---- */
+  var SCHED_CLOUD_KEY = '__seasonSchedule';
+  var SCHED_SYNC_TEXT = { local:'Saved on this device', saving:'Syncing\u2026', cloud:'Synced to cloud', error:'Cloud unreachable \u2014 saved on this device' };
+  var schedCloudTimer = null, localLastModified_SCHED = 0;
+  function cloudAvailable_SCHED(){ return typeof archiveFetch==='function' && typeof archivePut==='function'; }
+  function setSchedSyncStatus(state){
+    var el=document.getElementById('schedSyncStatus'); if(!el) return;
+    el.className='schedSyncPill '+state; el.textContent=SCHED_SYNC_TEXT[state]||'';
+    if(state==='error'){
+      var b=document.createElement('button'); b.className='schedSyncRetry'; b.type='button'; b.textContent='Retry';
+      b.onclick=function(){ pushScheduleToCloud_SCHED(); }; el.appendChild(b);
+    }
+  }
+  function scheduleCloudPush_SCHED(){
+    if(!cloudAvailable_SCHED()) return;
+    setSchedSyncStatus('saving');
+    clearTimeout(schedCloudTimer);
+    schedCloudTimer=setTimeout(pushScheduleToCloud_SCHED, 3000);
+  }
+  function pushScheduleToCloud_SCHED(){
+    if(!cloudAvailable_SCHED()) return;
+    var payload = { v:1, allSeasons: allSeasons_SCHED, currentSeason: currentSeason_SCHED, lastModified: Date.now() };
+    setSchedSyncStatus('saving');
+    return archiveFetch().then(function(a){ a[SCHED_CLOUD_KEY]=payload; return archivePut(a); })
+      .then(function(){ setSchedSyncStatus('cloud'); })
+      .catch(function(){ setSchedSyncStatus('error'); });
+  }
+  function reconcileCloudSchedule_SCHED(localLM){
+    if(!cloudAvailable_SCHED()) return;
+    setSchedSyncStatus('saving');
+    return archiveFetch().then(function(a){
+      var c=a && a[SCHED_CLOUD_KEY];
+      if(c && c.allSeasons && (c.lastModified||0) > (localLM||0)){
+        allSeasons_SCHED=c.allSeasons;
+        currentSeason_SCHED=c.currentSeason && c.allSeasons[c.currentSeason] ? c.currentSeason : Object.keys(c.allSeasons)[0];
+        populateSeasonSelect_SCHED(); renderAll_SCHED(); reallySave_SCHED();
+        setSchedSyncStatus('cloud');
+      } else if(!c || (localLM||0) > (c.lastModified||0)){
+        return pushScheduleToCloud_SCHED();
+      } else setSchedSyncStatus('cloud');
+    }).catch(function(){ setSchedSyncStatus('error'); });
+  }
   function loadState_SCHED(){
     var raw; try{ raw=localStorage.getItem(LS_KEY_SCHED); }catch(e){ return false; }
     if(!raw) return false;
     var d; try{ d=JSON.parse(raw); }catch(e){ return false; }
     if(!d || d.v!==1 || !d.allSeasons) return false;
     allSeasons_SCHED = d.allSeasons;
+    localLastModified_SCHED = d.lastModified || 0;
     currentSeason_SCHED = d.currentSeason || Object.keys(allSeasons_SCHED)[0];
     if(!allSeasons_SCHED[currentSeason_SCHED]) allSeasons_SCHED[currentSeason_SCHED] = defaultSeasonData_SCHED();
     return true;
@@ -2825,6 +2876,7 @@ document.addEventListener('DOMContentLoaded',function(){
     populateSeasonSelect_SCHED();
     renderAll_SCHED();
     saveEnabled_SCHED = true;
+    reconcileCloudSchedule_SCHED(localLastModified_SCHED);
   });
 
   /* ---- snapshot / print — a small dedicated bar, since the shared toolbar
@@ -3446,7 +3498,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
   function renderLibrary(overlay, archive, searchTerm){
     var body = overlay.querySelector('.archModalBody');
-    var years = Object.keys(archive).sort().reverse();
+    var years = Object.keys(archive).filter(function(k){return k.indexOf('__')!==0;}).sort().reverse();
     var yearSel = document.getElementById('archiveYear');
     var activeYear = (yearSel && archive[yearSel.value]) ? yearSel.value : (years[0] || String(new Date().getFullYear()));
 
@@ -3517,7 +3569,7 @@ document.addEventListener('DOMContentLoaded',function(){
             return archiveFetch();
           }).then(function(freshArchive){
             archive = freshArchive;
-            years = Object.keys(archive).sort().reverse();
+            years = Object.keys(archive).filter(function(k){return k.indexOf('__')!==0;}).sort().reverse();
             renderYear(yy, search);
           }).catch(function(err){ alert('Could not duplicate that session: '+err.message); });
         };
@@ -3531,7 +3583,7 @@ document.addEventListener('DOMContentLoaded',function(){
             return archiveFetch();
           }).then(function(freshArchive){
             archive = freshArchive;
-            years = Object.keys(archive).sort().reverse();
+            years = Object.keys(archive).filter(function(k){return k.indexOf('__')!==0;}).sort().reverse();
             renderYear(yy, search);
           }).catch(function(err){ alert('Could not delete that session: '+err.message); });
         };
