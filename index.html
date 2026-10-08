@@ -3293,9 +3293,8 @@ document.addEventListener('DOMContentLoaded',function(){
     var p=prog();
     PAGES.forEach(function(s){
       var el=document.getElementById('squadNote-'+s.toLowerCase()); if(!el) return;
-      el.innerHTML = p
-        ? '<span class="squadBadge">'+p.replace(/</g,'&lt;')+'</span> squad — these players are saved for <b>'+p.replace(/</g,'&lt;')+'</b> only. <span class="squadStatus local" id="squadStatus-'+s.toLowerCase()+'">'+TXT.local+'</span>'
-        : 'Choose a <b>Program</b> in the header (U17 / U19…) to load that squad’s players.';
+      if(p){ el.innerHTML=''; el.style.display='none'; }
+      else { el.style.display=''; el.innerHTML='Choose a <b>Program</b> in the header (U17 / U19\u2026) to load that squad\u2019s players.'; }
     });
   }
 
