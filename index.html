@@ -781,6 +781,7 @@ table.sched td.rmCell{text-align:center;}
       <span><i class="dot" style="background:var(--amber)"></i>Maybe</span>
       <span><i class="dot" style="background:var(--grey)"></i>Unset</span>
     </div>
+    <div class="squadNote" id="squadNote-cn"></div>
     <div class="roster" id="roster-cn"></div>
     <div class="addrow">
       <input type="text" id="addName-cn" placeholder="Add a player and press Enter&hellip;">
@@ -833,6 +834,7 @@ table.sched td.rmCell{text-align:center;}
       <span><i class="dot" style="background:var(--amber)"></i>Maybe</span>
       <span><i class="dot" style="background:var(--grey)"></i>Unset</span>
     </div>
+    <div class="squadNote" id="squadNote-cw"></div>
     <div class="roster" id="roster-cw"></div>
     <div class="addrow">
       <input type="text" id="addName-cw" placeholder="Add a player and press Enter&hellip;">
@@ -1809,6 +1811,38 @@ document.addEventListener('DOMContentLoaded',function(){
   });
 </script>
 
+<!-- ==================== PROGRAM-KEYED STORAGE HELPER (Preparation Phase only) ==================== -->
+<script>
+  /* The two Preparation Phase pages (Nets/Fielding, Centre Wicket) keep a separate
+     saved state per Program (U17 / U19 ...). Preseason and Leadership are NOT split. */
+  window.__progOverride = undefined;
+  function qcProg(){
+    if(window.__progOverride !== undefined) return window.__progOverride;
+    var sel = document.getElementById('programSelect');
+    if(sel && sel.options.length > 0) return (sel.value && sel.value !== '__add__') ? sel.value : '';
+    try{ return localStorage.getItem('qc_program_v1') || ''; }catch(e){ return ''; }
+  }
+  /* one-time migration: the roster/plan that existed before programs were introduced belongs to U19 */
+  (function(){
+    try{
+      if(localStorage.getItem('qc_prep_prog_migrated_v1')) return;
+      var names=[], seen={};
+      ['qc_champ_prep_net_training_v1','qc_champ_prep_cw_scenarios_v1'].forEach(function(k){
+        var v=localStorage.getItem(k); if(!v) return;
+        if(!localStorage.getItem(k+'::U19')) localStorage.setItem(k+'::U19', v);
+        try{ (JSON.parse(v).chips||[]).forEach(function(c){ var n=(c.n||'').trim(); if(n && !seen[n]){ seen[n]=1; names.push(n); } }); }catch(e){}
+        localStorage.removeItem(k);
+      });
+      if(names.length){
+        var sq={}; try{ sq=JSON.parse(localStorage.getItem('qc_squads_v1'))||{}; }catch(e){}
+        if(!sq.U19){ sq.U19={names:names,lastModified:Date.now()}; localStorage.setItem('qc_squads_v1',JSON.stringify(sq)); }
+        if(!localStorage.getItem('qc_program_v1')) localStorage.setItem('qc_program_v1','U19');
+      }
+      localStorage.setItem('qc_prep_prog_migrated_v1','1');
+    }catch(e){}
+  })();
+</script>
+
 <!-- ==================== CHAMPIONSHIP PREP: NET BASED TRAINING (namespaced _CN) ==================== -->
 <script>
   var UNASSIGNED_CN='Unassigned';
@@ -1816,6 +1850,7 @@ document.addEventListener('DOMContentLoaded',function(){
   var PLAYERS_CN=[]; // Championship Prep roster_CN starts blank — add the ~16 names each session
   var saveEnabled_CN=false, saveTimer_CN=null;
   var LS_KEY_CN='qc_champ_prep_net_training_v1';
+  function lsKey_CN(){ var p=qcProg(); return LS_KEY_CN + (p ? '::'+p : ''); }
 
   function esc_CN(s){ return String(s).replace(/[&<>"]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m];}); }
 
@@ -1868,13 +1903,13 @@ document.addEventListener('DOMContentLoaded',function(){
       var nmEl=c.querySelector('.nm');
       nmEl.removeAttribute('contenteditable');
       c.setAttribute('draggable','true');
-      renderGroups_CN(); saveState_CN();
+      renderGroups_CN(); saveState_CN(); if(window.qcSquadEdited)qcSquadEdited('CN');
     });
     c.querySelector('.nm').addEventListener('keydown', function(e){
       if(e.key==='Enter'){ e.preventDefault(); c.querySelector('.nm').blur(); }
     });
     c.querySelector('.row1').addEventListener('click', function(e){ if(e.target.classList.contains('nm')||e.target.classList.contains('x'))return; cycle_CN(c); });
-    c.querySelector('.x').addEventListener('click', function(e){e.stopPropagation();c.remove();updateTally_CN();renderGroups_CN();saveState_CN();});
+    c.querySelector('.x').addEventListener('click', function(e){e.stopPropagation();c.remove();updateTally_CN();renderGroups_CN();saveState_CN();if(window.qcSquadEdited)qcSquadEdited('CN');});
     return c;
   }
   function cycle_CN(c){
@@ -2010,7 +2045,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
   function addPlayer_CN(){
     var inp=document.getElementById('addName-cn'); var v=inp.value.trim();
-    if(!v) return; roster_CN.appendChild(makeChip_CN(v,'in')); inp.value=''; updateTally_CN(); renderGroups_CN(); inp.focus(); saveState_CN();
+    if(!v) return; roster_CN.appendChild(makeChip_CN(v,'in')); inp.value=''; updateTally_CN(); renderGroups_CN(); inp.focus(); saveState_CN(); if(window.qcSquadEdited)qcSquadEdited('CN');
   }
   function allAvailable_CN(){
     document.querySelectorAll('#roster-cn .chip').forEach(function(c){c.setAttribute('data-s','in');}); updateTally_CN(); renderGroups_CN(); saveState_CN();
@@ -2063,7 +2098,8 @@ document.addEventListener('DOMContentLoaded',function(){
     rotationData_CN={};
     render_CN();
     renderGroups_CN();
-    try{ localStorage.removeItem(LS_KEY_CN); }catch(e){}
+    try{ localStorage.removeItem(lsKey_CN()); }catch(e){}
+    if(window.qcApplySquad) qcApplySquad('CN');
     syncPageTitle_CN();
   }
 
@@ -2077,7 +2113,7 @@ document.addEventListener('DOMContentLoaded',function(){
     var dEl=document.getElementById('sessionDateInput'), tEl=document.getElementById('sessionTimeInput');
     return {v:1, fielding:(document.getElementById('fielding-cn')||{}).innerHTML||'', chips:chips, fields:fields, rotationData_CN:rotationData_CN, netsList_CN:netsList_CN, rotationCount_CN:rotationCount_CN, dateVal:dEl?dEl.value:'', timeVal:tEl?tEl.value:''};
   }
-  function reallySave_CN(){ try{ localStorage.setItem(LS_KEY_CN, JSON.stringify(collectState_CN())); }catch(e){} }
+  function reallySave_CN(){ try{ localStorage.setItem(lsKey_CN(), JSON.stringify(collectState_CN())); }catch(e){} }
   function saveState_CN(){ if(!saveEnabled_CN) return; clearTimeout(saveTimer_CN); saveTimer_CN=setTimeout(reallySave_CN, 400); }
   function migrateRotationData_CN(data){
     var out={};
@@ -2099,11 +2135,18 @@ document.addEventListener('DOMContentLoaded',function(){
     return out;
   }
 
-  function loadState_CN(externalData){
+  /* clears ONLY this page's own content (used when the Program is switched) */
+  function resetPhase_CN(){
+    netsList_CN=['CW','Net 1','Net 2','Net 3']; rotationCount_CN=3; rotationData_CN={};
+    roster_CN.innerHTML='';
+    document.querySelectorAll('#body-champnet [contenteditable]').forEach(function(el){ if(el.closest('#roster-cn'))return; el.innerHTML=''; });
+    renderNetGridHead_CN(); render_CN();
+  }
+  function loadState_CN(externalData, scoped){
     var d;
     if(externalData){ d = externalData; }
     else {
-      var raw; try{ raw=localStorage.getItem(LS_KEY_CN); }catch(e){ return false; }
+      var raw; try{ raw=localStorage.getItem(lsKey_CN()); }catch(e){ return false; }
       if(!raw) return false;
       try{ d=JSON.parse(raw); }catch(e){ return false; }
     }
@@ -2119,11 +2162,11 @@ document.addEventListener('DOMContentLoaded',function(){
     });
     updateTally_CN(); renderGroups_CN();
     var fields=[]; document.querySelectorAll('[contenteditable]').forEach(function(el){ if(el.hasAttribute('data-own')||el.closest('#roster-cn'))return; fields.push(el); });
-    if(d.fields) d.fields.forEach(function(html,i){ if(fields[i]!=null){ try{ fields[i].innerHTML=html; }catch(e){} } });
+    if(d.fields) d.fields.forEach(function(html,i){ if(fields[i]!=null){ if(scoped && !fields[i].closest('#body-champnet')) return; try{ fields[i].innerHTML=html; }catch(e){} } });
     var fEl_=document.getElementById('fielding-cn'); if(fEl_) fEl_.innerHTML = d.fielding||'';
     var dEl=document.getElementById('sessionDateInput'), tEl=document.getElementById('sessionTimeInput');
-    if(dEl && d.dateVal!=null) dEl.value=d.dateVal;
-    if(tEl && d.timeVal!=null) tEl.value=d.timeVal;
+    if(!scoped && dEl && d.dateVal!=null) dEl.value=d.dateVal;
+    if(!scoped && tEl && d.timeVal!=null) tEl.value=d.timeVal;
     return true;
   }
 
@@ -2229,6 +2272,7 @@ document.addEventListener('DOMContentLoaded',function(){
   var PLAYERS_CW=[]; // Championship Prep roster_CW starts blank — add the ~16 names each session
   var saveEnabled_CW=false, saveTimer_CW=null;
   var LS_KEY_CW='qc_champ_prep_cw_scenarios_v1';
+  function lsKey_CW(){ var p=qcProg(); return LS_KEY_CW + (p ? '::'+p : ''); }
 
   function esc_CW(s){ return String(s).replace(/[&<>"]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m];}); }
 
@@ -2284,13 +2328,13 @@ document.addEventListener('DOMContentLoaded',function(){
       var nmEl=c.querySelector('.nm');
       nmEl.removeAttribute('contenteditable');
       c.setAttribute('draggable','true');
-      renderGroups_CW(); saveState_CW();
+      renderGroups_CW(); saveState_CW(); if(window.qcSquadEdited)qcSquadEdited('CW');
     });
     c.querySelector('.nm').addEventListener('keydown', function(e){
       if(e.key==='Enter'){ e.preventDefault(); c.querySelector('.nm').blur(); }
     });
     c.querySelector('.row1').addEventListener('click', function(e){ if(e.target.classList.contains('nm')||e.target.classList.contains('x'))return; cycle_CW(c); });
-    c.querySelector('.x').addEventListener('click', function(e){e.stopPropagation();c.remove();updateTally_CW();renderGroups_CW();saveState_CW();});
+    c.querySelector('.x').addEventListener('click', function(e){e.stopPropagation();c.remove();updateTally_CW();renderGroups_CW();saveState_CW();if(window.qcSquadEdited)qcSquadEdited('CW');});
     return c;
   }
   function cycle_CW(c){
@@ -2387,7 +2431,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
   function addPlayer_CW(){
     var inp=document.getElementById('addName-cw'); var v=inp.value.trim();
-    if(!v) return; roster_CW.appendChild(makeChip_CW(v,'in')); inp.value=''; updateTally_CW(); renderGroups_CW(); inp.focus(); saveState_CW();
+    if(!v) return; roster_CW.appendChild(makeChip_CW(v,'in')); inp.value=''; updateTally_CW(); renderGroups_CW(); inp.focus(); saveState_CW(); if(window.qcSquadEdited)qcSquadEdited('CW');
   }
   function allAvailable_CW(){
     document.querySelectorAll('#roster-cw .chip').forEach(function(c){c.setAttribute('data-s','in');}); updateTally_CW(); renderGroups_CW(); saveState_CW();
@@ -2438,7 +2482,8 @@ document.addEventListener('DOMContentLoaded',function(){
     for(var i=0;i<6;i++) newScenario_CW('');
     render_CW();
     renderGroups_CW();
-    try{ localStorage.removeItem(LS_KEY_CW); }catch(e){}
+    try{ localStorage.removeItem(lsKey_CW()); }catch(e){}
+    if(window.qcApplySquad) qcApplySquad('CW');
     syncPageTitle_CW();
   }
 
@@ -2453,13 +2498,20 @@ document.addEventListener('DOMContentLoaded',function(){
     return {v:2, fielding:(document.getElementById('fielding-cw')||{}).innerHTML||'', chips:chips, fields:fields, scenarios_CW:scenarios_CW, scenarioAssignments_CW:scenarioAssignments_CW, scenarioSeq_CW:scenarioSeq_CW,
             dateVal:dEl?dEl.value:'', timeVal:tEl?tEl.value:''};
   }
-  function reallySave_CW(){ try{ localStorage.setItem(LS_KEY_CW, JSON.stringify(collectState_CW())); }catch(e){} }
+  function reallySave_CW(){ try{ localStorage.setItem(lsKey_CW(), JSON.stringify(collectState_CW())); }catch(e){} }
   function saveState_CW(){ if(!saveEnabled_CW) return; clearTimeout(saveTimer_CW); saveTimer_CW=setTimeout(reallySave_CW, 400); }
-  function loadState_CW(externalData){
+  function resetPhase_CW(){
+    scenarios_CW=[]; scenarioAssignments_CW={}; scenarioSeq_CW=0;
+    roster_CW.innerHTML='';
+    document.querySelectorAll('#body-champcw [contenteditable]').forEach(function(el){ if(el.closest('#roster-cw')||el.closest('#scenariosContainer-cw'))return; el.innerHTML=''; });
+    for(var i=0;i<6;i++) newScenario_CW('');
+    render_CW();
+  }
+  function loadState_CW(externalData, scoped){
     var d;
     if(externalData){ d = externalData; }
     else {
-      var raw; try{ raw=localStorage.getItem(LS_KEY_CW); }catch(e){ return false; }
+      var raw; try{ raw=localStorage.getItem(lsKey_CW()); }catch(e){ return false; }
       if(!raw) return false;
       try{ d=JSON.parse(raw); }catch(e){ return false; }
     }
@@ -2474,11 +2526,11 @@ document.addEventListener('DOMContentLoaded',function(){
     });
     updateTally_CW(); renderGroups_CW();
     var fields=[]; document.querySelectorAll('[contenteditable]').forEach(function(el){ if(el.hasAttribute('data-own')||el.closest('#roster-cw')||el.closest('#scenariosContainer-cw'))return; fields.push(el); });
-    if(d.fields) d.fields.forEach(function(html,i){ if(fields[i]!=null){ try{ fields[i].innerHTML=html; }catch(e){} } });
+    if(d.fields) d.fields.forEach(function(html,i){ if(fields[i]!=null){ if(scoped && !fields[i].closest('#body-champcw')) return; try{ fields[i].innerHTML=html; }catch(e){} } });
     var fEl_=document.getElementById('fielding-cw'); if(fEl_) fEl_.innerHTML = d.fielding||'';
     var dEl=document.getElementById('sessionDateInput'), tEl=document.getElementById('sessionTimeInput');
-    if(dEl && d.dateVal!=null) dEl.value=d.dateVal;
-    if(tEl && d.timeVal!=null) tEl.value=d.timeVal;
+    if(!scoped && dEl && d.dateVal!=null) dEl.value=d.dateVal;
+    if(!scoped && tEl && d.timeVal!=null) tEl.value=d.timeVal;
     return true;
   }
 
@@ -3205,6 +3257,12 @@ document.addEventListener('DOMContentLoaded',function(){
 .archCol h4{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--rust);margin:0 0 8px 0;}
 .archItem{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;}
 .archItemLabel{font-weight:700;font-size:12.5px;color:var(--ink);word-break:break-word;}
+.squadNote{font-size:12.5px;color:var(--ink-soft);margin:2px 0 10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.squadBadge{display:inline-block;background:var(--maroon-deep);color:#fff;font-weight:700;font-size:11px;padding:2px 8px;border-radius:6px;}
+.squadStatus{margin-left:6px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#eef1f5;color:#556;}
+.squadStatus.saving{background:#fff4d6;color:#8a6200;}
+.squadStatus.cloud{background:#dff5e6;color:#1d6b3a;}
+.squadStatus.error{background:#fde1e1;color:#a11;}
 .archProgBadge{display:inline-block;background:var(--maroon-deep);color:#fff;font-weight:700;font-size:10.5px;padding:2px 7px;border-radius:6px;margin-left:6px;}
 .archProgFilter{padding:7px 10px;border:1px solid #d7cfd5;border-radius:8px;font:inherit;margin-right:8px;background:#fff;}
 .archItemMeta{font-size:11px;color:var(--ink-soft);margin:2px 0 6px 0;}
@@ -3213,6 +3271,108 @@ document.addEventListener('DOMContentLoaded',function(){
 .archEmpty{font-size:12px;color:var(--ink-soft);font-style:italic;}
 .archCurrentBadge{display:inline-block;background:var(--gold);color:var(--maroon-deep);font-weight:800;font-size:10.5px;padding:2px 8px;border-radius:6px;margin-left:6px;}
 </style>
+
+<!-- ==================== PREPARATION-PHASE SQUADS (per Program, cloud-synced) ==================== -->
+<script>
+(function(){
+  var SQUAD_LS='qc_squads_v1', SQUAD_CLOUD_KEY='__squads', PAGES=['CN','CW'];
+  var applied={CN:0,CW:0}, pushTimer=null;
+  function squads(){ try{ var o=JSON.parse(localStorage.getItem(SQUAD_LS)); if(o&&typeof o==='object') return o; }catch(e){} return {}; }
+  function saveSquads(o){ try{ localStorage.setItem(SQUAD_LS, JSON.stringify(o)); }catch(e){} }
+  function prog(){ return qcProg(); }
+  function cloudOK(){ return typeof archiveFetch==='function' && typeof archivePut==='function'; }
+  function pageNames(sfx){ return [].map.call(document.querySelectorAll('#roster-'+sfx.toLowerCase()+' .chip .nm'), function(n){ return n.textContent.trim(); }).filter(Boolean); }
+
+  var TXT={local:'Saved on this device', saving:'Syncing…', cloud:'Synced to cloud', error:'Cloud unreachable — saved on this device'};
+  function status(state){
+    PAGES.forEach(function(s){
+      var el=document.getElementById('squadStatus-'+s.toLowerCase()); if(el){ el.className='squadStatus '+state; el.textContent=TXT[state]||''; }
+    });
+  }
+  function renderNotes(){
+    var p=prog();
+    PAGES.forEach(function(s){
+      var el=document.getElementById('squadNote-'+s.toLowerCase()); if(!el) return;
+      el.innerHTML = p
+        ? '<span class="squadBadge">'+p.replace(/</g,'&lt;')+'</span> squad — these players are saved for <b>'+p.replace(/</g,'&lt;')+'</b> only. <span class="squadStatus local" id="squadStatus-'+s.toLowerCase()+'">'+TXT.local+'</span>'
+        : 'Choose a <b>Program</b> in the header (U17 / U19…) to load that squad’s players.';
+    });
+  }
+
+  function applySquad(sfx){
+    var p=prog(); if(!p) return;
+    var sq=squads()[p]; if(!sq || !Array.isArray(sq.names)) return;   // nothing known yet: never wipe a roster
+    var host=document.getElementById('roster-'+sfx.toLowerCase()); if(!host) return;
+    var existing={}; [].forEach.call(host.querySelectorAll('.chip'), function(c){ existing[c.querySelector('.nm').textContent.trim()]=c; });
+    Object.keys(existing).forEach(function(n){ if(sq.names.indexOf(n)<0) existing[n].remove(); });
+    sq.names.forEach(function(n){ host.appendChild(existing[n] || window['makeChip_'+sfx](n,'in')); });
+    window['updateTally_'+sfx](); window['renderGroups_'+sfx](); window['saveState_'+sfx]();
+    applied[sfx]=sq.lastModified||0;
+  }
+  window.qcApplySquad=applySquad;
+
+  window.qcSquadEdited=function(sfx){
+    var p=prog(); if(!p) return;
+    var names=pageNames(sfx), all=squads(), cur=(all[p]&&all[p].names)||[];
+    if(JSON.stringify(names)===JSON.stringify(cur)) return;
+    all[p]={names:names,lastModified:Date.now()}; saveSquads(all);
+    applied[sfx]=all[p].lastModified;
+    PAGES.forEach(function(o){ if(o!==sfx) applySquad(o); });   // keep the other Preparation page in step
+    status('saving'); schedulePush();
+  };
+
+  function schedulePush(){ if(!cloudOK()) { status('local'); return; } clearTimeout(pushTimer); pushTimer=setTimeout(pushSquads,2500); }
+  function pushSquads(){
+    if(!cloudOK()) return Promise.resolve();
+    var all=squads();
+    return archiveFetch().then(function(a){
+      var cl=a[SQUAD_CLOUD_KEY]||{};
+      Object.keys(all).forEach(function(p){ if(!cl[p] || (cl[p].lastModified||0)<=(all[p].lastModified||0)) cl[p]=all[p]; });
+      a[SQUAD_CLOUD_KEY]=cl; return archivePut(a);
+    }).then(function(){ status('cloud'); }).catch(function(){ status('error'); });
+  }
+  function reconcile(){
+    if(!cloudOK()) return Promise.resolve();
+    status('saving');
+    return archiveFetch().then(function(a){
+      var cl=a[SQUAD_CLOUD_KEY]||{}, all=squads(), changed=false, needPush=false;
+      Object.keys(cl).forEach(function(p){ if(!all[p] || (all[p].lastModified||0)<(cl[p].lastModified||0)){ all[p]=cl[p]; changed=true; } });
+      Object.keys(all).forEach(function(p){ if(!cl[p] || (cl[p].lastModified||0)<(all[p].lastModified||0)) needPush=true; });
+      if(changed){ saveSquads(all); PAGES.forEach(function(s){ var sq=all[prog()]; if(sq && (applied[s]||0)<(sq.lastModified||0)) applySquad(s); }); }
+      if(needPush) return pushSquads();
+      status('cloud');
+    }).catch(function(){ status('error'); });
+  }
+
+  /* Program switched by the user: park this program's Preparation pages, load the other program's */
+  window.qcProgramChanged=function(newP){
+    var oldP=window.__lastProgram||'';
+    if(newP===oldP){ renderNotes(); return; }
+    PAGES.forEach(function(s){ clearTimeout(window['saveTimer_'+s]); });
+    window.__progOverride=oldP;
+    try{ PAGES.forEach(function(s){ window['reallySave_'+s](); }); } finally { window.__progOverride=undefined; }
+    window.__lastProgram=newP;
+    PAGES.forEach(function(s){
+      window['resetPhase_'+s]();
+      try{ window['loadState_'+s](null, true); }catch(e){}
+      applied[s]=0; applySquad(s);
+      window['updateTally_'+s](); window['renderGroups_'+s]();
+    });
+    renderNotes(); reconcile();
+  };
+
+  window.addEventListener('load', function(){
+    window.__lastProgram = prog();
+    renderNotes();
+    PAGES.forEach(applySquad);
+    reconcile();
+  });
+  /* if a squad changed in the cloud while the other Preparation page was hidden, catch up when it is shown */
+  document.getElementById('sessionTemplate').addEventListener('change', function(){
+    PAGES.forEach(function(s){ var sq=squads()[prog()]; if(sq && (applied[s]||0)<(sq.lastModified||0)) applySquad(s); });
+  });
+})();
+</script>
 <script>
   /* ============================================================
      SESSION LIBRARY — cloud storage via JSONBin
@@ -3402,11 +3562,12 @@ document.addEventListener('DOMContentLoaded',function(){
     return name;
   }
   function currentProgram(){ var s=document.getElementById('programSelect'); return s&&s.value&&s.value!=='__add__' ? s.value : ''; }
-  function setHeaderProgram(name){
+  function setHeaderProgram(name, fromUser){
     var sel=document.getElementById('programSelect'); if(!sel) return;
     if(name) name=addProgram(name);
     populateProgramSelect(name||'');
     try{ localStorage.setItem(PROGRAM_LS, name||''); }catch(e){}
+    if(!fromUser) window.__lastProgram = name||'';
     if(typeof syncPageTitle==='function') syncPageTitle();
   }
   function fitProgramSelect(){
@@ -3436,12 +3597,14 @@ document.addEventListener('DOMContentLoaded',function(){
       if(sel.value==='__add__'){
         var n=prompt('New program name (e.g. U15, Girls U17):','');
         var name=addProgram(n);
-        setHeaderProgram(name);
+        setHeaderProgram(name, true);
+        if(window.qcProgramChanged) qcProgramChanged(name);
         return;
       }
       try{ localStorage.setItem(PROGRAM_LS, sel.value); }catch(e){}
       fitProgramSelect();
       if(typeof syncPageTitle==='function') syncPageTitle();
+      if(window.qcProgramChanged) qcProgramChanged(sel.value);
     });
     window.addEventListener('load', fitProgramSelect);
   }
